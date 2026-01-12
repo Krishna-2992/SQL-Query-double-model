@@ -2,6 +2,7 @@ import torch
 import json
 import re
 import time
+import requests
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
@@ -16,61 +17,89 @@ model = AutoModelForCausalLM.from_pretrained(
 
 model.eval()
 
-SQL_MODEL_NAME = "prem-research/prem-1B-SQL"
+# ------ FOR WINDOWS ------
+# SQL_MODEL_NAME = "prem-research/prem-1B-SQL"
 
-sql_tokenizer = AutoTokenizer.from_pretrained(SQL_MODEL_NAME)
+# sql_tokenizer = AutoTokenizer.from_pretrained(SQL_MODEL_NAME)
 
-sql_model = AutoModelForCausalLM.from_pretrained(
-    SQL_MODEL_NAME,
-    torch_dtype=torch.float16
-).to("cuda")
+# sql_model = AutoModelForCausalLM.from_pretrained(
+#     SQL_MODEL_NAME,
+#     torch_dtype=torch.float16,
+#     device_map="cpu"
+# )
 
-sql_model.eval()
+# sql_model.eval()
+
+# ------ FOR MAC ------
+OLLAMA_URL = "http://localhost:11434/api/generate"
+PREM_MODEL = "anindya/prem1b-sql-ollama-fp116:latest"
+
+def run_prem_sql(prompt: str) -> str:
+    payload = {
+        "model": PREM_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.0,
+            "num_predict": 200
+        }
+    }
+
+    resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
+    resp.raise_for_status()
+
+    return resp.json()["response"].strip()
+
+
+
 
 print("Reasoning model device:", next(model.parameters()).device)
-print("SQL model device:", next(sql_model.parameters()).device)
-
-ALLOWED_INTENTS = [
-    "CREATE_TABLE",
-    "SELECT",
-    "INSERT",
-    "UPDATE",
-    "DELETE",
-    "ALTER",
-    "DROP"
-]
+# ------ FOR WINDOWS ------
+# print("SQL model device:", next(sql_model.parameters()).device)
 
 REASONING_SCHEMA = """
 Fields:
-- intent: one of CREATE_TABLE, SELECT, INSERT, UPDATE, DELETE, ALTER, DROP
-- table: lowercase table name
-- set: key-value pairs to modify or insert
-- where: key-value filter conditions
+- intent: SELECT | INSERT | UPDATE | DELETE | CREATE_TABLE | ALTER | DROP
+- tables: list of tables involved
+- columns: list of selected columns or expressions
+- joins: list of join objects
+    - type: INNER | LEFT | RIGHT
+    - table: table name
+    - on: join condition
+- filters: list of conditions
+    - column
+    - operator (=, >, <, >=, <=, LIKE, IN, BETWEEN)
+    - value
+    - logical: AND | OR
+- group_by: list of columns
+- having: list of conditions
+- order_by: list of columns with direction
+    - column
+    - direction: ASC | DESC
+- limit: integer or null
+- offset: integer or null
+- set: key-value pairs (for INSERT / UPDATE)
 - followup: boolean
-
-Output format:
-A single JSON object with keys:
-intent, table, set, where, followup
 """
 
 def build_prompt(user_request: str) -> str:
     return f"""
-You are a STRICT SQL intent classifier and extractor.
+You are a SQL semantic parser.
+
+Your task:
+- Understand the user request
+- Extract ALL relevant SQL components
+- Preserve comparisons, ordering, grouping, limits, joins, and conditions
 
 Rules:
-- Output EXACTLY ONE JSON object
-- Do NOT include schema or examples
-- Do NOT repeat instructions
+- Output EXACTLY one JSON object
+- Use only fields from the schema
+- If a field is not mentioned, use null or empty list
+- Do NOT generate SQL
 - Do NOT explain anything
-- Do NOT use markdown
-- Do NOT invent columns unless user mentions them
-- intent MUST be one of: {", ".join(ALLOWED_INTENTS)}
-- table MUST be lowercase
-- set = values to modify or insert
-- where = filter conditions
-- followup = false unless user clearly refers to previous query
+- Do NOT repeat this prompt in the response
 
-JSON format:
+Schema:
 {REASONING_SCHEMA}
 
 User request:
@@ -80,7 +109,11 @@ JSON:
 """
 
 def extract_json(text: str):
-    start = text.find("{")
+    json_start = text.find("JSON:")
+    if json_start == -1:
+        return None
+
+    start = text.find("{", json_start)
     if start == -1:
         return None
 
@@ -93,9 +126,11 @@ def extract_json(text: str):
             if brace_count == 0:
                 try:
                     return json.loads(text[start:i+1])
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    print("JSON decode error:", e)
                     return None
     return None
+
 
 def normalize_reasoning(result: dict) -> dict:
     if not result:
@@ -144,7 +179,7 @@ def run_reasoning(user_request: str):
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=200,
+            max_new_tokens=300,
             do_sample=False
         )
 
@@ -157,7 +192,14 @@ def run_reasoning(user_request: str):
     print(decoded)
 
     parsed = extract_json(decoded)
+
+    print("🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲")
+    print(parsed)
+    print("🎲🎲🎲🎲🎲🎲🎲🎲🎲🎲")
     parsed = normalize_reasoning(parsed)
+    print("🛟🛟🛟🛟🛟🛟🛟🛟")
+    print(parsed)
+    print("🛟🛟🛟🛟🛟🛟🛟🛟")
 
     print("\n--- PARSED JSON ---")
     if parsed:
@@ -169,51 +211,56 @@ def run_reasoning(user_request: str):
 
     return parsed
 
+# def run_sql_generation(sql_prompt: str) -> str:
+#     inputs = sql_tokenizer(
+#         sql_prompt,
+#         return_tensors="pt",
+#         truncation=True,
+#         max_length=512
+#     ).to("cuda")
+
+#     with torch.no_grad():
+#         output = sql_model.generate(
+#             **inputs,
+#             max_new_tokens=200,
+#             do_sample=False
+#         )
+
+#     return sql_tokenizer.decode(output[0], skip_special_tokens=True)
+
+# ------- FOR MAC -------
 def run_sql_generation(sql_prompt: str) -> str:
-    inputs = sql_tokenizer(
-        sql_prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512
-    ).to("cuda")
-
-    with torch.no_grad():
-        output = sql_model.generate(
-            **inputs,
-            max_new_tokens=200,
-            do_sample=False
-        )
-
-    return sql_tokenizer.decode(output[0], skip_special_tokens=True)
+    return run_prem_sql(sql_prompt)
 
 def build_sql_prompt_from_reasoning(reasoning: dict) -> str:
-    intent = reasoning["intent"]
-    table = reasoning["table"]
-    where = reasoning.get("where", {})
+    return f"""
+You are an expert SQL generator.
 
-    if intent == "SELECT":
-        if where:
-            conditions = " AND ".join(
-                f"{k} = '{v}'" for k, v in where.items()
-            )
-            return f"SELECT * FROM {table} WHERE {conditions};"
-        else:
-            return f"SELECT * FROM {table};"
+Input is a JSON specification of a SQL query.
+Generate the most accurate SQL query possible.
 
-    if intent == "CREATE_TABLE":
-        return f"Create a SQL table for {table} using appropriate columns."
+Rules:
+- Use standard ANSI SQL
+- Do not hallucinate tables or columns
+- Do not explain anything
+- Output only SQL
 
-    # For non‑SELECT, we should not call Prem
-    return None
+JSON:
+{json.dumps(reasoning, indent=2)}
+
+SQL:
+"""
 
 if __name__ == "__main__":
     tests = [
         # "Increase salary to 70000 for employee with id 5",
-        "Show all customers from India",
+        # "Show all customers from India",
         # "Create a table to store orders with date and amount",
         # "Delete user where email = test@gmail.com",
         # "Add a new product with name phone and price 500",
-        # "Update order status to shipped where order id is 10"
+        # "Update order status to shipped where order id is 10", 
+        # "Show top 5 customers by total order value in 2023"
+        "schema: User {id, name}, Order {order_id, price, user_id}, question: which user purchased things of more than 1000 rs."
     ]
 
     for t in tests:
@@ -226,17 +273,19 @@ if __name__ == "__main__":
             print("❌ Could not reason about query")
             continue
 
-        print("🚀reasining🚀")
+        print("🚀reasoning🚀🚀🚀🚀🚀")
         print(reasoning)
+        print("🚀🚀🚀🚀🚀🚀")
 
         sql_prompt = build_sql_prompt_from_reasoning(reasoning)
 
-        print("🚀sql_prompt🚀")
+        print("🏀🏀🏀🏀🏀🏀🏀🏀🏀SQL prompt")
         print(sql_prompt)
+        print("🏀🏀🏀🏀🏀🏀🏀🏀")
 
         if sql_prompt:
-            print("\n--- SQL PROMPT (to Prem) ---")
-            print(sql_prompt)
+            # print("\n--- SQL PROMPT (to Prem) ---")
+            # print(sql_prompt)
 
             sql = run_sql_generation(sql_prompt)
 
