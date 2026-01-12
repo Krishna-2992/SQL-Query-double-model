@@ -16,6 +16,20 @@ model = AutoModelForCausalLM.from_pretrained(
 
 model.eval()
 
+SQL_MODEL_NAME = "prem-research/prem-1B-SQL"
+
+sql_tokenizer = AutoTokenizer.from_pretrained(SQL_MODEL_NAME)
+
+sql_model = AutoModelForCausalLM.from_pretrained(
+    SQL_MODEL_NAME,
+    torch_dtype=torch.float16
+).to("cuda")
+
+sql_model.eval()
+
+print("Reasoning model device:", next(model.parameters()).device)
+print("SQL model device:", next(sql_model.parameters()).device)
+
 ALLOWED_INTENTS = [
     "CREATE_TABLE",
     "SELECT",
@@ -27,13 +41,16 @@ ALLOWED_INTENTS = [
 ]
 
 REASONING_SCHEMA = """
-{
-  "intent": "ONE OF: CREATE_TABLE | SELECT | INSERT | UPDATE | DELETE | ALTER | DROP",
-  "table": "string (lowercase, singular)",
-  "set": {},
-  "where": {},
-  "followup": false
-}
+Fields:
+- intent: one of CREATE_TABLE, SELECT, INSERT, UPDATE, DELETE, ALTER, DROP
+- table: lowercase table name
+- set: key-value pairs to modify or insert
+- where: key-value filter conditions
+- followup: boolean
+
+Output format:
+A single JSON object with keys:
+intent, table, set, where, followup
 """
 
 def build_prompt(user_request: str) -> str:
@@ -42,9 +59,10 @@ You are a STRICT SQL intent classifier and extractor.
 
 Rules:
 - Output EXACTLY ONE JSON object
+- Do NOT include schema or examples
+- Do NOT repeat instructions
+- Do NOT explain anything
 - Do NOT use markdown
-- Do NOT explain
-- Do NOT repeat JSON
 - Do NOT invent columns unless user mentions them
 - intent MUST be one of: {", ".join(ALLOWED_INTENTS)}
 - table MUST be lowercase
@@ -151,17 +169,80 @@ def run_reasoning(user_request: str):
 
     return parsed
 
+def run_sql_generation(sql_prompt: str) -> str:
+    inputs = sql_tokenizer(
+        sql_prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512
+    ).to("cuda")
+
+    with torch.no_grad():
+        output = sql_model.generate(
+            **inputs,
+            max_new_tokens=200,
+            do_sample=False
+        )
+
+    return sql_tokenizer.decode(output[0], skip_special_tokens=True)
+
+def build_sql_prompt_from_reasoning(reasoning: dict) -> str:
+    intent = reasoning["intent"]
+    table = reasoning["table"]
+    where = reasoning.get("where", {})
+
+    if intent == "SELECT":
+        if where:
+            conditions = " AND ".join(
+                f"{k} = '{v}'" for k, v in where.items()
+            )
+            return f"SELECT * FROM {table} WHERE {conditions};"
+        else:
+            return f"SELECT * FROM {table};"
+
+    if intent == "CREATE_TABLE":
+        return f"Create a SQL table for {table} using appropriate columns."
+
+    # For non‑SELECT, we should not call Prem
+    return None
+
 if __name__ == "__main__":
     tests = [
-        "Increase salary to 70000 for employee with id 5",
+        # "Increase salary to 70000 for employee with id 5",
         "Show all customers from India",
-        "Create a table to store orders with date and amount",
-        "Delete user where email = test@gmail.com",
-        "Add a new product with name phone and price 500",
-        "Update order status to shipped where order id is 10"
+        # "Create a table to store orders with date and amount",
+        # "Delete user where email = test@gmail.com",
+        # "Add a new product with name phone and price 500",
+        # "Update order status to shipped where order id is 10"
     ]
 
     for t in tests:
         print("\n" + "=" * 80)
         print("USER:", t)
-        run_reasoning(t)
+
+        reasoning = run_reasoning(t)
+
+        if not reasoning or reasoning["intent"] == "UNKNOWN":
+            print("❌ Could not reason about query")
+            continue
+
+        print("🚀reasining🚀")
+        print(reasoning)
+
+        sql_prompt = build_sql_prompt_from_reasoning(reasoning)
+
+        print("🚀sql_prompt🚀")
+        print(sql_prompt)
+
+        if sql_prompt:
+            print("\n--- SQL PROMPT (to Prem) ---")
+            print(sql_prompt)
+
+            sql = run_sql_generation(sql_prompt)
+
+            print("\n--- FINAL SQL (from Prem) ---")
+            print(sql)
+        else:
+            print("\n--- DETERMINISTIC SQL (no Prem) ---")
+            print(reasoning)
+
