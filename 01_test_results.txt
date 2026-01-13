@@ -1,0 +1,115 @@
+⏱️ Inference time: 14.370 seconds
+user query:  Show all columns for the users table
+SELECT * FROM users WHERE id = 1;
+
+⏱️ Inference time: 11.456 seconds
+user query:  List the names of all products where the price is greater than 100
+SELECT name, price FROM products WHERE price > 100;
+
+⏱️ Inference time: 10.411 seconds
+user query:  Find the email of the user with id 50
+SELECT email FROM users WHERE id = 50;
+
+⏱️ Inference time: 10.568 seconds
+❌ SQL VALIDATION FAILED
+Reasons:
+  - SQL syntax is invalid
+  - Failed to extract tables: Invalid expression / Unexpected token. Line 1, Col: 21.
+  INSERT INTO staff SET name = 'Alice', salary = 65000;
+
+⏱️ Inference time: 18.288 seconds
+user query:  Delete all records from the logs table where the level is 'DEBUG'
+DELETE FROM logs WHERE level = 'DEBUG';
+
+⏱️ Inference time: 10.089 seconds
+user query:  Update the stock_count to 0 for product_id 202
+UPDATE products SET stock_count = 0 WHERE product_id = 202;
+
+⏱️ Inference time: 10.729 seconds
+❌ SQL VALIDATION FAILED
+Reasons:
+  - Aggregate function used without GROUP BY clause
+
+⏱️ Inference time: 16.674 seconds
+user query:  Get all orders from '2023-05-01' to '2023-05-31' that are still 'Pending'
+SELECT * FROM orders WHERE order_date BETWEEN '2023-05-01' AND '2023-05-31' AND status = 'Pending';
+
+⏱️ Inference time: 15.365 seconds
+user query:  List all customers from 'London' or 'Paris' who signed up in 2024
+SELECT * FROM customers WHERE city IN ('London', 'Paris') AND signup_year = 2024;
+
+⏱️ Inference time: 13.847 seconds
+user query:  Find all products whose name contains the word 'Pro' and order them by price ascending
+SELECT name, price FROM products WHERE name LIKE '%Pro%' ORDER BY price ASC LIMIT NULL OFFSET NULL
+
+⏱️ Inference time: 12.180 seconds
+❌ SQL VALIDATION FAILED
+Reasons:
+  - SQL uses tables {'departments', 'employees'}, but only ['employees'] are allowed
+
+⏱️ Inference time: 17.387 seconds
+user query:  Count the total number of orders placed by each customer
+SELECT * FROM customers LEFT JOIN orders ON customers.customer_id = orders.customer_id WHERE orders.order_date IS NOT NULL;
+
+⏱️ Inference time: 9.617 seconds
+user query:  Show the total revenue grouped by product category
+SELECT SUM(sales.revenue) FROM sales INNER JOIN products ON sales.product_id = products.product_id GROUP BY product_category;
+
+⏱️ Inference time: 17.709 seconds
+user query:  List departments that have a total salary expense exceeding 500,000
+SELECT e.first_name, e.last_name FROM employees AS e INNER JOIN departments AS d ON e.department = d.department_id WHERE salary >= 50000;
+
+⏱️ Inference time: 17.035 seconds
+user query:  Find the maximum and minimum price in the electronics category
+SELECT price, category FROM products WHERE category = 'electronics' ORDER BY price ASC LIMIT NULL OFFSET NULL
+
+⏱️ Inference time: 16.235 seconds
+user query:  Show the names of customers and the dates of their orders by joining customers and orders
+SELECT customers.name, orders.order_date FROM customers INNER JOIN orders ON customers.customer_id = orders.customer_id
+
+⏱️ Inference time: 26.217 seconds
+user query:  List all employees and their department names
+SELECT employees.name FROM employees INNER JOIN departments ON employees.department = departments.department_id;
+
+⏱️ Inference time: 28.744 seconds
+user query:  Show all products and their respective supplier names where the supplier is based in 'USA'
+SELECT products.name , suppliers.supplier_name FROM products INNER JOIN suppliers ON products.supplier_id = suppliers.id
+
+⏱️ Inference time: 13.679 seconds
+user query:  Get a list of all students and the names of the courses they are enrolled in
+SELECT s.name AS student_name, c.course_name FROM students s INNER JOIN courses c ON s.id = c.student_id;
+
+⏱️ Inference time: 17.857 seconds
+user query:  Find all users who bought a product in the 'Home Decor' category
+SELECT users.name AS customer_name FROM orders INNER JOIN users ON orders.user_id = users.id INNER JOIN products ON orders.product_id = products.id WHERE products.category = 'Home Decor';
+
+⏱️ Inference time: 20.048 seconds
+user query:  Show the top 5 customers by total order value in 2023
+SELECT c.customer_id , SUM(o.total_order_value) FROM customers c JOIN orders o ON c.customer_id = o.customer_id WHERE o.order_date BETWEEN '2023-01-01' AND '2024-01-01' GROUP BY c.customer_id ORDER BY SUM(o.total_order_value) DESC LIMIT 5;
+
+⏱️ Inference time: 14.790 seconds
+❌ SQL VALIDATION FAILED
+Reasons:
+  - Aggregate function used without GROUP BY clause
+
+⏱️ Inference time: 25.385 seconds
+user query:  List the names of users who have never placed an order
+SELECT users.name FROM orders INNER JOIN users ON orders.user_id = users.id WHERE placed = 'true' GROUP BY users.name
+
+⏱️ Inference time: 17.139 seconds
+user query:  For each city, show the total number of users and the average order value
+SELECT city , COUNT(*) as total_users FROM users GROUP BY city ORDER BY avg_order_value DESC LIMIT 10
+
+⏱️ Inference time: 23.071 seconds
+user query:  Find the employee who has the highest salary in the 'Marketing' department
+SELECT employees.employee_id, name FROM employees INNER JOIN departments ON employees.department_id = departments.department_id WHERE department_name = 'Marketing' AND salary IS NOT NULL ORDER BY salary DESC LIMIT 1
+
+⏱️ Inference time: 12.394 seconds
+❌ SQL VALIDATION FAILED
+Reasons:
+  - SQL intent mismatch: expected CREATE_TABLE
+
+⏱️ Inference time: 9.628 seconds
+❌ SQL VALIDATION FAILED
+Reasons:
+  - SQL intent mismatch: expected CREATE_TABLE
