@@ -133,6 +133,37 @@ def extract_json(text: str):
     return None
 
 
+def remove_empty_fields(obj):
+    """
+    Recursively remove:
+    - None
+    - empty lists []
+    - empty dicts {}
+    """
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            v = remove_empty_fields(v)
+            if v is None:
+                continue
+            if isinstance(v, (list, dict)) and not v:
+                continue
+            cleaned[k] = v
+        return cleaned
+
+    elif isinstance(obj, list):
+        cleaned_list = []
+        for item in obj:
+            item = remove_empty_fields(item)
+            if item is None:
+                continue
+            if isinstance(item, (list, dict)) and not item:
+                continue
+            cleaned_list.append(item)
+        return cleaned_list
+
+    return obj
+
 def normalize_reasoning(result: dict) -> dict:
     if not result:
         return None
@@ -155,27 +186,15 @@ def normalize_reasoning(result: dict) -> dict:
     result["intent"] = intent_map.get(raw_intent, raw_intent.upper())
 
     # ---- normalize tables ----
-    if "tables" in result and isinstance(result["tables"], list):
+    if isinstance(result.get("tables"), list):
         result["tables"] = [t.lower() for t in result["tables"]]
 
-    # ---- normalize lists ----
-    for key in [
-        "columns",
-        "joins",
-        "filters",
-        "group_by",
-        "having",
-        "order_by"
-    ]:
-        result.setdefault(key, [])
-
-    # ---- normalize scalars ----
-    result.setdefault("limit", None)
-    result.setdefault("offset", None)
-    result.setdefault("set", {})
-    result.setdefault("followup", False)
+    # ✅ REMOVE empty / null fields
+    result = remove_empty_fields(result)
 
     return result
+
+
 
 def run_reasoning(user_request: str):
     prompt = build_prompt(user_request)
@@ -265,17 +284,28 @@ JSON:
 SQL:
 """
 
+def build_insert_sql(reasoning):
+    table = reasoning["tables"][0]
+    cols = reasoning["set"]["columns"]
+    vals = reasoning["set"]["values"]
+
+    col_str = ", ".join(cols)
+    val_str = ", ".join(format_value(v) for v in vals)
+
+    return f"INSERT INTO {table} ({col_str}) VALUES ({val_str});"
+
+
 if __name__ == "__main__":
-    tests = [
-        "Increase salary to 70000 for employee with id 5",
-        "Show all customers from India",
-        "Create a table to store orders with date and amount",
-        "Delete user where email = test@gmail.com",
-        "Add a new product with name phone and price 500",
-        "Update order status to shipped where order id is 10", 
-        "Show top 5 customers by total order value in 2023",
-        "schema: User {id, name}, Order {order_id, price, user_id}, question: which user purchased things of more than 1000 rs."
-    ]
+    # tests = [
+    #     "Increase salary to 70000 for employee with id 5",
+    #     "Show all customers from India",
+    #     "Create a table to store orders with date and amount",
+    #     "Delete user where email = test@gmail.com",
+    #     "Add a new product with name phone and price 500",
+    #     "Update order status to shipped where order id is 10", 
+    #     "Show top 5 customers by total order value in 2023",
+    #     "schema: User {id, name}, Order {order_id, price, user_id}, question: which user purchased things of more than 1000 rs."
+    # ]
 
     # tests = [
     #     # --- LEVEL 1: Simple CRUD & Basic Filtering ---
@@ -319,16 +349,16 @@ if __name__ == "__main__":
     # ]
 
     tests = [
-        "Show all columns for the users table",
-        "Insert a staff record",
-        "Find all products whose name contains the word 'Pro' and order them by price ascending",
+        # "Show all columns for the users table",
+        # "Insert a staff record",
+        # "Find all products whose name contains the word 'Pro' and order them by price ascending",
         "Count the total number of orders placed by each customer",
-        "List departments that have a total salary expense exceeding 500,000",
-        "Find the maximum and minimum price in the electronics category",
-        "Show all products and their respective supplier names where the supplier is based in 'USA'",
-        "Get a list of all students and the names of the courses they are enrolled in",
-        "List the names of users who have never placed an order",
-        "For each city, show the total number of users and the average order value"
+        # "List departments that have a total salary expense exceeding 500,000",
+        # "Find the maximum and minimum price in the electronics category",
+        # "Show all products and their respective supplier names where the supplier is based in 'USA'",
+        # "Get a list of all students and the names of the courses they are enrolled in",
+        # "List the names of users who have never placed an order",
+        # "For each city, show the total number of users and the average order value"
     ]
 
     for t in tests:
@@ -337,19 +367,29 @@ if __name__ == "__main__":
 
         reasoning = run_reasoning(t)
 
+
+
         if not reasoning or reasoning["intent"] == "UNKNOWN":
             print("❌ Could not reason about query")
             continue
 
-        # print("🚀reasoning🚀🚀🚀🚀🚀")
-        # print(reasoning)
-        # print("🚀🚀🚀🚀🚀🚀")
+        print("🚀reasoning🚀🚀🚀🚀🚀")
+        print(reasoning)
+        print("🚀🚀🚀🚀🚀🚀")
+        
+        # ---------- INSERTING LOGIC --------
+        # if reasoning["intent"] == "INSERT": 
+        #     print("inside insert intent block")
+        #     sql = build_insert_sql(reasoning)
+        #     print("user query: ", t)
+        #     print(sql)
+        #     continue
 
         sql_prompt = build_sql_prompt_from_reasoning(reasoning)
 
-        # print("🏀🏀🏀🏀🏀🏀🏀🏀🏀SQL prompt")
-        # print(sql_prompt)
-        # print("🏀🏀🏀🏀🏀🏀🏀🏀")
+        print("`🏀🏀🏀🏀🏀🏀🏀🏀🏀SQL prompt")
+        print(sql_prompt)
+        print("🏀`🏀🏀🏀🏀🏀🏀🏀")
 
         if sql_prompt:
             sql = run_sql_generation(sql_prompt)

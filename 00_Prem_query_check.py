@@ -21,4 +21,54 @@ def run_prem_sql(prompt: str) -> str:
     return resp.json()["response"].strip()
 
 # print(run_prem_sql("Max and min price in electronics category"))
-print(run_prem_sql("List all employees and their department names"))
+
+query = """
+SQL prompt
+
+You are an expert SQL generator.
+
+Input is a JSON specification of a SQL query.
+Generate the most accurate SQL query possible.
+
+Rules:
+- Use standard ANSI SQL
+- Do not hallucinate tables or columns
+- Do not explain anything
+- Output only SQL
+
+JSON:
+{
+  "intent": "SELECT",
+  "tables": [
+    "products"
+  ],
+  "columns": [
+    "name",
+    "price"
+  ],
+  "joins": [],
+  "filters": [
+    {
+      "column": "name",
+      "operator": "LIKE",
+      "value": "%Pro%",
+      "logical": "AND"
+    }
+  ],
+  "group_by": null,
+  "having": null,
+  "order_by": [
+    {
+      "column": "price",
+      "direction": "ASC"
+    }
+  ],
+  "limit": null,
+  "offset": null,
+  "set": null,
+  "followup": false
+}
+
+SQL:
+"""
+print(run_prem_sql(query))
